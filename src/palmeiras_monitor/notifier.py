@@ -49,9 +49,13 @@ class TelegramNotifier:
         self.timeout = timeout
         self.attempts = attempts
 
+    def _redact(self, exc: Exception) -> str:
+        """Remove the bot token from exception text before logging it."""
+        return str(exc).replace(self.bot_token, "<redacted>") if self.bot_token else str(exc)
+
     def send(self, text: str) -> str | None:
         """Send a message, retrying transient failures."""
-        last_error: Exception | None = None
+        last_error: str | None = None
         for attempt in range(1, self.attempts + 1):
             try:
                 response = httpx.post(
@@ -67,10 +71,10 @@ class TelegramNotifier:
                 payload = response.json()
                 return str(payload.get("message_id", ""))
             except Exception as exc:  # noqa: BLE001 - retry any transient failure
-                last_error = exc
+                last_error = self._redact(exc)
                 logging.getLogger("palmeiras_monitor").warning(
-                    "Telegram send attempt %s/%s failed: %s", attempt, self.attempts, exc
+                    "Telegram send attempt %s/%s failed: %s", attempt, self.attempts, last_error
                 )
                 if attempt < self.attempts:
                     time.sleep(2 ** attempt)
-        raise RuntimeError(f"Telegram notification failed after {self.attempts} attempts") from last_error
+        raise RuntimeError(f"Telegram notification failed after {self.attempts} attempts: {last_error}")
