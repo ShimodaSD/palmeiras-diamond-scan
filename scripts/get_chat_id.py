@@ -72,10 +72,8 @@ def main() -> int:
                 or chat.get("username")
                 or "?"
             )
-            text = message.get("text", "")
             print(
-                f"CHAT_ID={chat.get('id')} type={chat.get('type')} "
-                f"name={name} text={text!r}",
+                f"CHAT_ID={chat.get('id')} type={chat.get('type')} name={name}",
                 flush=True,
             )
             return 0

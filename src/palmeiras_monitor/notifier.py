@@ -12,7 +12,6 @@ from .models import TicketSaleEvent
 
 TELEGRAM_SEND_MESSAGE_URL = "https://api.telegram.org/bot{bot_token}/sendMessage"
 TELEGRAM_TITLE = "🎟️ PALMEIRAS — AVANTI DIAMANTE"
-TELEGRAM_PARSE_MODE = "Markdown"
 
 
 def _format_sale_start(value: str | None) -> str:
@@ -63,7 +62,6 @@ class TelegramNotifier:
                     json={
                         "chat_id": self.chat_id,
                         "text": text,
-                        "parse_mode": TELEGRAM_PARSE_MODE,
                     },
                     timeout=self.timeout,
                 )

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -34,43 +35,48 @@ class Storage:
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(SCHEMA)
         self._conn.commit()
+        self._lock = threading.RLock()
 
     def close(self) -> None:
         """Close the database connection."""
-        self._conn.close()
+        with self._lock:
+            self._conn.close()
 
     def is_notified(self, match: str, sale_phase: str) -> bool:
         """Return True when this (match, phase) was already notified."""
-        row = self._conn.execute(
-            "SELECT 1 FROM notifications WHERE match = ? AND sale_phase = ?",
-            (match, sale_phase),
-        ).fetchone()
-        return row is not None
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT 1 FROM notifications WHERE match = ? AND sale_phase = ?",
+                (match, sale_phase),
+            ).fetchone()
+            return row is not None
 
     def record(self, event: TicketSaleEvent, notified_at: str) -> bool:
         """Insert a notification record; return False when it was a duplicate."""
-        cursor = self._conn.execute(
-            "INSERT OR IGNORE INTO notifications "
-            "(source, match, match_date, sale_phase, sale_start_at, official_url, status, notified_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                event.source,
-                event.match,
-                event.match_date,
-                event.sale_phase,
-                event.sale_start_at,
-                event.official_url,
-                event.status,
-                notified_at,
-            ),
-        )
-        self._conn.commit()
-        return cursor.rowcount > 0
+        with self._lock:
+            cursor = self._conn.execute(
+                "INSERT OR IGNORE INTO notifications "
+                "(source, match, match_date, sale_phase, sale_start_at, official_url, status, notified_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    event.source,
+                    event.match,
+                    event.match_date,
+                    event.sale_phase,
+                    event.sale_start_at,
+                    event.official_url,
+                    event.status,
+                    notified_at,
+                ),
+            )
+            self._conn.commit()
+            return cursor.rowcount > 0
 
     def get_history(self) -> list[dict[str, Any]]:
         """Return the most recent notification history rows."""
-        rows = self._conn.execute(
-            "SELECT source, match, match_date, sale_phase, sale_start_at, official_url, status, notified_at "
-            "FROM notifications ORDER BY id DESC LIMIT 100"
-        ).fetchall()
-        return [dict(row) for row in rows]
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT source, match, match_date, sale_phase, sale_start_at, official_url, status, notified_at "
+                "FROM notifications ORDER BY id DESC LIMIT 100"
+            ).fetchall()
+            return [dict(row) for row in rows]

@@ -24,7 +24,7 @@ DRY_RUN=1 RUN_ONCE=1 ./scripts/run_monitor.sh   # one pass, print only
 | Variable | Default | Meaning |
 |---|---|---|
 | `TELEGRAM_BOT_TOKEN` | — | required, `@ShimodaNotificaBot` |
-| `TELEGRAM_CHAT_ID` | — | required, 739017043 |
+| `TELEGRAM_CHAT_ID` | — | required, your private chat ID |
 | `CHECK_INTERVAL_SECONDS` | 300 | 5-minute polling |
 | `TIMEZONE` | America/Sao_Paulo | local time |
 | `DATABASE_PATH` | data/notifications.db | SQLite history |

@@ -10,7 +10,7 @@ from palmeiras_monitor.notifier import TelegramNotifier
 class NotifierSecurityTests(unittest.TestCase):
     def test_redacts_bot_token_from_exception_text(self) -> None:
         token = "123456:ABCDEF_secret-token"
-        notifier = TelegramNotifier(token, "739017043")
+        notifier = TelegramNotifier(token, "123456789")
         error = RuntimeError(
             f"Client error for url 'https://api.telegram.org/bot{token}/sendMessage'"
         )
