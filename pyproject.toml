@@ -1,0 +1,24 @@
+[project]
+name = "palmeiras-diamond-ticket-monitor"
+version = "0.1.0"
+description = "Monitors Palmeiras and Avanti ticket sales for Avanti Diamante members and notifies via Telegram."
+readme = "README.md"
+requires-python = ">=3.15"
+dependencies = [
+    "beautifulsoup4>=4.15.0",
+    "httpx>=0.28.1",
+    "python-dotenv>=1.2.4",
+]
+
+[project.scripts]
+palmeiras-monitor = "palmeiras_monitor.main:run"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/palmeiras_monitor"]
+
+[tool.uv]
+package = true
