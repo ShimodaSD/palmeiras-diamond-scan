@@ -25,16 +25,36 @@ def _format_sale_start(value: str | None) -> str:
 
 def build_message(event: TicketSaleEvent, checked_at: datetime) -> str:
     """Build the notification text for a ticket sale event."""
+    venue = event.venue or "TBD"
     return "\n".join(
         [
             TELEGRAM_TITLE,
             "",
             f"🏟️ Match: {event.match}",
             f"📅 Match date: {event.match_date}",
+            f"📍 Venue: {venue} — {event.venue_label}",
             f"💎 Diamond ticket sales: {_format_sale_start(event.sale_start_at)}",
             f"🟢 Status: {event.status}",
             f"🔗 Official ticket link: {event.official_url or 'TBD'}",
+            f"📰 Announcement: {event.announcement_url or 'TBD'}",
             f"⏰ Checked at: {checked_at:%Y-%m-%d %H:%M:%S}",
+        ]
+    )
+
+
+def build_unparsed_message(title: str, link: str, published_at: str | None = None) -> str:
+    """Build a fallback alert for a new ticket post the parser could not read."""
+    return "\n".join(
+        [
+            TELEGRAM_TITLE,
+            "",
+            "⚠️ Post novo com \"ingresso\", mas não identifiquei a janela Diamante.",
+            "",
+            f"📰 {title or 'Post sem título'}",
+            f"📅 Published: {published_at or 'TBD'}",
+            f"🔗 {link or 'TBD'}",
+            "",
+            "Verifique manualmente — pode ser formato novo, tabela ou imagem.",
         ]
     )
 

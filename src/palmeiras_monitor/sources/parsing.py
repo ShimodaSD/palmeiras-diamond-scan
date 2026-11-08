@@ -8,7 +8,16 @@ from typing import Any
 
 from bs4 import BeautifulSoup
 
-from ..models import BRAZIL_TZ, SALE_PHASE_ANNOUNCED, SALE_PHASE_OPEN, TicketSaleEvent
+from ..models import (
+    BRAZIL_TZ,
+    SALE_PHASE_ANNOUNCED,
+    SALE_PHASE_OPEN,
+    VENUE_AWAY,
+    VENUE_HOME,
+    VENUE_NEUTRAL,
+    VENUE_UNKNOWN,
+    TicketSaleEvent,
+)
 
 MONTHS = {
     "janeiro": 1,
@@ -40,6 +49,17 @@ TICKET_URL_RE = re.compile(
     re.IGNORECASE,
 )
 DAY_MONTH_RE = re.compile(r"dia\s+(\d{1,2})\s+de\s+([a-zçãéêô]+)", re.IGNORECASE)
+
+# Venue names are matched after "no/na/em" and classified as home/away/neutral.
+VENUE_RE = re.compile(
+    r"\b(?:no|na|em)\s+("
+    r"(?:Estádio|Arena|Allianz|Nubank|Maracanã|Morumbi|Mineirão|Centenário|Monumental|"
+    r"Neo Química|Vila Belmiro|Castelão|Mané Garrincha)"
+    r"[^,.;\n]{0,70})",
+    re.IGNORECASE,
+)
+HOME_VENUES = ("nubank parque", "allianz parque", "arena barueri", "arena crefisa", "crefisa barueri")
+NEUTRAL_VENUES = ("centenário", "centenario", "montevidéu", "montevideu")
 
 _TEAM = r"[A-ZÀ-Ü][\wÀ-ú.\-']*(?:\s+[A-ZÀ-Ü][\wÀ-ú.\-']*){0,3}"
 TEAMS_PAL_FIRST_RE = re.compile(rf"Palmeiras\s*[xX]\s*({_TEAM})")
@@ -118,16 +138,47 @@ def extract_ticket_url(html: str, fallback: str | None) -> str | None:
     return match.group(0) if match else fallback
 
 
+def post_plain_text(post: dict[str, Any]) -> tuple[str, str, str]:
+    """Return (title, html, text) for a WordPress post."""
+    title = clean_text((post.get("title") or {}).get("rendered", ""))
+    html = (post.get("content") or {}).get("rendered", "")
+    return title, html, clean_text(html)
+
+
+def contains_ingresso(post: dict[str, Any]) -> bool:
+    """Return True when the post title or body mentions tickets."""
+    title, _, text = post_plain_text(post)
+    return "ingresso" in f"{title}\n{text}".lower()
+
+
+def classify_venue(text: str) -> tuple[str, str | None]:
+    """Classify the match as home, away, or neutral from the announcement venue."""
+    opening = " ".join((text or "").split())[:700]
+
+    # Use the first venue mentioned: posts may cite Allianz Parque later as a
+    # comparison while the actual match is away.
+    for match in VENUE_RE.finditer(opening):
+        venue = match.group(1).strip(" .,-")
+        haystack = venue.lower()
+        if any(name in haystack for name in HOME_VENUES):
+            return VENUE_HOME, venue
+        if any(name in haystack for name in NEUTRAL_VENUES):
+            return VENUE_NEUTRAL, venue
+        return VENUE_AWAY, venue
+
+    if "fora de casa" in opening.lower() or "como visitante" in opening.lower():
+        return VENUE_AWAY, None
+    return VENUE_UNKNOWN, None
+
+
 def build_event_from_post(
     post: dict[str, Any],
     source: str,
     lookback_days: int = 30,
 ) -> TicketSaleEvent | None:
     """Turn a WordPress post into a TicketSaleEvent, or None when irrelevant."""
-    title = clean_text((post.get("title") or {}).get("rendered", ""))
+    title, html, text = post_plain_text(post)
     link = post.get("link") or ""
-    html = (post.get("content") or {}).get("rendered", "")
-    text = clean_text(html)
     combined = f"{title}\n{text}"
 
     if "ingresso" not in combined.lower():
@@ -151,6 +202,7 @@ def build_event_from_post(
             pass
     official_url = extract_ticket_url(html, link or None)
     phase = SALE_PHASE_OPEN if OPEN_MARKERS.search(text) else SALE_PHASE_ANNOUNCED
+    venue_type, venue = classify_venue(text)
 
     return TicketSaleEvent(
         source=source,
@@ -159,4 +211,7 @@ def build_event_from_post(
         sale_phase=phase,
         sale_start_at=sale_start.isoformat(timespec="minutes"),
         official_url=official_url,
+        venue_type=venue_type,
+        venue=venue,
+        announcement_url=link or None,
     )

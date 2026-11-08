@@ -9,6 +9,12 @@ Watches official Palmeiras and Avanti ticket sale announcements and sends a Tele
 
 No CAPTCHA, Cloudflare, or access restrictions are bypassed; no tickets are purchased.
 
+## What it alerts on
+
+- **Diamond sale window found** — match, venue (Mandante / Visitante / Local neutro), sale start, status, ticket link and announcement link.
+- **New ticket post the parser could not read** — fallback alert with the post title and link, so a new layout, table or image is never silent.
+- **First run after deploy** records existing posts without sending fallback alerts, to avoid spamming the history.
+
 ## Setup
 
 Python 3.15 via [uv](https://docs.astral.sh/uv/). Credentials come from the OpenBot vault at runtime (never written into the repo).
@@ -18,6 +24,8 @@ uv sync
 ./scripts/run_monitor.sh            # real notifications every 5 min
 DRY_RUN=1 RUN_ONCE=1 ./scripts/run_monitor.sh   # one pass, print only
 ```
+
+Production uses OpenBot routines with `RUN_ONCE=1` three times a day (09:00, 15:00 and 21:00, America/Sao_Paulo). `CHECK_INTERVAL_SECONDS` only applies to the continuous mode above.
 
 ## Configuration (environment)
 
@@ -34,12 +42,12 @@ DRY_RUN=1 RUN_ONCE=1 ./scripts/run_monitor.sh   # one pass, print only
 ## Architecture
 
 - `sources/http_client.py` — httpx with retries/timeouts
-- `sources/parsing.py` — Diamante pre-sale schedule, match/date, ticket link extraction
+- `sources/parsing.py` — Diamante pre-sale schedule, match/date, ticket link and venue (home/away/neutral) extraction
 - `sources/palmeiras.py`, `sources/avanti.py` — official REST API collectors
-- `collector.py` — dedupe per (match, phase), notification decisions
-- `storage.py` — SQLite notification history
+- `collector.py` — dedupe per (match, phase), fallback alerts for unparsed posts, notification decisions
+- `storage.py` — SQLite notification history and seen-post tracking
 - `notifier.py` — Telegram Bot API with retries
-- `scheduler.py` — 5-minute polling loop
+- `scheduler.py` — 5-minute polling loop (continuous mode only)
 
 ## Tests
 
