@@ -11,7 +11,13 @@ from palmeiras_monitor.models import (
     VENUE_HOME,
     TicketSaleEvent,
 )
-from palmeiras_monitor.notifier import TelegramNotifier, build_message, build_unparsed_message
+from palmeiras_monitor.notifier import (
+    TelegramNotifier,
+    build_empty_feed_message,
+    build_message,
+    build_source_failure_message,
+    build_unparsed_message,
+)
 
 
 class NotifierSecurityTests(unittest.TestCase):
@@ -58,6 +64,18 @@ class MessageContentTests(unittest.TestCase):
         )
         self.assertIn("não identifiquei a janela Diamante", message)
         self.assertIn("https://palmeiras.com.br/noticias/fluminense/", message)
+
+    def test_source_failure_message_names_source_and_reason(self) -> None:
+        message = build_source_failure_message(
+            "palmeiras", "TimeoutError: read timed out", datetime(2026, 10, 28, 9, 0)
+        )
+        self.assertIn('"palmeiras" falhou', message)
+        self.assertIn("TimeoutError: read timed out", message)
+        self.assertIn("2026-10-28 09:00:00", message)
+
+    def test_empty_feed_message_names_source(self) -> None:
+        message = build_empty_feed_message("avanti", datetime(2026, 10, 28, 9, 0))
+        self.assertIn('"avanti" não retornou nenhum post', message)
 
 
 if __name__ == "__main__":

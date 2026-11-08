@@ -7,7 +7,13 @@ from datetime import datetime
 from typing import Any
 
 from .models import BRAZIL_TZ, TicketSaleEvent
-from .notifier import TelegramNotifier, build_message, build_unparsed_message
+from .notifier import (
+    TelegramNotifier,
+    build_empty_feed_message,
+    build_message,
+    build_source_failure_message,
+    build_unparsed_message,
+)
 from .sources.base import SaleSource
 from .sources.parsing import build_event_from_post, contains_ingresso, post_plain_text
 from .storage import Storage
@@ -42,8 +48,22 @@ class Collector:
         for source in self.sources:
             try:
                 posts = source.fetch_posts()
-            except Exception:
+            except Exception as exc:
                 self.logger.exception("Source %s failed", source.name)
+                self._alert_once(
+                    f"source_failure:{source.name}:{now.date().isoformat()}",
+                    build_source_failure_message(source.name, self._reason(exc), now),
+                    now,
+                )
+                continue
+
+            if not posts:
+                self.logger.warning("Source %s returned no posts", source.name)
+                self._alert_once(
+                    f"empty_feed:{source.name}:{now.date().isoformat()}",
+                    build_empty_feed_message(source.name, now),
+                    now,
+                )
                 continue
 
             for post in posts:
@@ -131,6 +151,26 @@ class Collector:
             return False
         self.logger.info("Fallback alert sent: %s | %s", title, link)
         return True
+
+    def _alert_once(self, alert_key: str, message: str, now: datetime) -> None:
+        """Send a health alert at most once per day for the same key."""
+        if self.storage.alert_sent(alert_key):
+            return
+        if self.dry_run:
+            self.logger.info("[DRY RUN] would send health alert:\n%s", message)
+            return
+        try:
+            self.notifier.send(message)
+        except Exception:
+            self.logger.exception("Failed to send health alert: %s", alert_key)
+            return
+        self.storage.record_alert(alert_key, now.strftime("%Y-%m-%d %H:%M:%S"))
+        self.logger.info("Health alert sent: %s", alert_key)
+
+    @staticmethod
+    def _reason(exc: Exception) -> str:
+        """Short, log-safe reason for a source failure."""
+        return f"{type(exc).__name__}: {exc}"[:200]
 
     @staticmethod
     def _post_key(post: dict[str, Any]) -> str:

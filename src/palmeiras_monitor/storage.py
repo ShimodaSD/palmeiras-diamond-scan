@@ -36,6 +36,11 @@ CREATE TABLE IF NOT EXISTS seen_posts (
     parsed INTEGER NOT NULL,
     first_seen_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS system_alerts (
+    alert_key TEXT PRIMARY KEY,
+    sent_at TEXT NOT NULL
+);
 """
 
 NEW_NOTIFICATION_COLUMNS = {
@@ -155,6 +160,24 @@ class Storage:
                     1 if parsed else 0,
                     first_seen_at,
                 ),
+            )
+            self._conn.commit()
+            return cursor.rowcount > 0
+
+    def alert_sent(self, alert_key: str) -> bool:
+        """Return True when this health alert was already sent."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT 1 FROM system_alerts WHERE alert_key = ?", (alert_key,)
+            ).fetchone()
+            return row is not None
+
+    def record_alert(self, alert_key: str, sent_at: str) -> bool:
+        """Record a health alert; return False when it was already recorded."""
+        with self._lock:
+            cursor = self._conn.execute(
+                "INSERT OR IGNORE INTO system_alerts (alert_key, sent_at) VALUES (?, ?)",
+                (alert_key, sent_at),
             )
             self._conn.commit()
             return cursor.rowcount > 0
