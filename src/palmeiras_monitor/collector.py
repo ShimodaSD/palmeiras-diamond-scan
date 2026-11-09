@@ -46,6 +46,15 @@ class Collector:
     def run_once(self, checked_at: datetime | None = None) -> list[TicketSaleEvent]:
         """Run a single collection pass and alert on new events or unparsed posts."""
         now = checked_at or datetime.now(self.timezone)
+        if not self.storage.acquire_run_lock():
+            self.logger.warning("Collection pass skipped: another monitor instance is active")
+            return []
+        try:
+            return self._run_once(now)
+        finally:
+            self.storage.release_run_lock()
+
+    def _run_once(self, now: datetime) -> list[TicketSaleEvent]:
         sent: list[TicketSaleEvent] = []
         # On the very first pass, record existing posts without sending fallback
         # alerts, so deploying this feature does not spam the whole history.
