@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import fcntl
 import sqlite3
 import threading
 from pathlib import Path
@@ -80,6 +81,9 @@ class Storage:
         self._migrate()
         self._conn.commit()
         self._lock = threading.RLock()
+        self._run_lock_guard = threading.Lock()
+        self._run_lock_file = open(f"{path.resolve()}.lock", "a")
+        self._run_lock_acquired = False
 
     def _migrate(self) -> None:
         """Bring older databases to the current schema without losing history."""
@@ -178,8 +182,28 @@ class Storage:
 
     def close(self) -> None:
         """Close the database connection."""
+        self.release_run_lock()
+        self._run_lock_file.close()
         with self._lock:
             self._conn.close()
+
+    def acquire_run_lock(self) -> bool:
+        """Acquire a non-blocking lock shared by all monitor processes."""
+        if not self._run_lock_guard.acquire(blocking=False):
+            return False
+        try:
+            fcntl.flock(self._run_lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            self._run_lock_guard.release()
+            return False
+        self._run_lock_acquired = True
+        return True
+
+    def release_run_lock(self) -> None:
+        if self._run_lock_acquired:
+            fcntl.flock(self._run_lock_file.fileno(), fcntl.LOCK_UN)
+            self._run_lock_acquired = False
+            self._run_lock_guard.release()
 
     def is_notified(self, dedupe_key: str) -> bool:
         """Return True when this sale window was already notified."""
