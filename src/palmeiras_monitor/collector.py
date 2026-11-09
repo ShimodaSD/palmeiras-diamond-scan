@@ -12,6 +12,7 @@ from .notifier import (
     TelegramNotifier,
     build_empty_feed_message,
     build_message,
+    build_sale_change_message,
     build_source_failure_message,
     build_store_open_message,
     build_unparsed_message,
@@ -147,7 +148,21 @@ class Collector:
         sent: list[TicketSaleEvent],
     ) -> None:
         """Send a parsed event alert, isolating failures per event."""
-        if self.storage.is_notified(event.dedupe_key):
+        previous = self.storage.get_notification(event.dedupe_key)
+        if previous:
+            if previous["sale_start_at"] == event.sale_start_at:
+                return
+            message = build_sale_change_message(event, previous["sale_start_at"], now)
+            if self.dry_run:
+                self.logger.info("[DRY RUN] would send schedule update:\n%s", message)
+            else:
+                try:
+                    self.notifier.send(message)
+                except Exception:
+                    self.logger.exception("Failed to notify sale-time change: %s", event.match)
+                    return
+            self.storage.update_notification(event, now.strftime("%Y-%m-%d %H:%M:%S"))
+            self.logger.info("Sale time updated: %s | %s", event.match, event.sale_start_at)
             return
         message = build_message(event, now)
         if self.dry_run:

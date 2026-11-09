@@ -42,6 +42,20 @@ def build_message(event: TicketSaleEvent, checked_at: datetime) -> str:
     )
 
 
+def build_sale_change_message(
+    event: TicketSaleEvent, previous_sale_start: str | None, checked_at: datetime
+) -> str:
+    """Build a notice for a changed Diamante sale start time."""
+    previous = _format_sale_start(previous_sale_start)
+    current = _format_sale_start(event.sale_start_at)
+    return build_message(event, checked_at).replace(
+        TELEGRAM_TITLE,
+        f"{TELEGRAM_TITLE}\n\n🔄 Horário da pré-venda Diamante alterado.\n"
+        f"Antes: {previous}\nAgora: {current}",
+        1,
+    )
+
+
 def build_unparsed_message(title: str, link: str, published_at: str | None = None) -> str:
     """Build a fallback alert for a new ticket post the parser could not read."""
     return "\n".join(
