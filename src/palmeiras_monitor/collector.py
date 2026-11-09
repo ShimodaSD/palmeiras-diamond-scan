@@ -73,6 +73,8 @@ class Collector:
             )
         store_announcement_url = None
         store_match = None
+        store_announcement_date = ""
+        matched_store_event = False
 
         for source in self.sources:
             try:
@@ -107,17 +109,22 @@ class Collector:
                     and post.get("link")
                     and contains_ingresso(post)
                 ):
-                    store_announcement_url = store_announcement_url or post["link"]
+                    published = post.get("date") or ""
                     title, _, text = post_plain_text(post)
-                    store_match = store_match or extract_teams(f"{title}\n{text}")
-                    if (
+                    matching_event = (
                         event
                         and store_status.sale_start_at
                         and event.sale_start_at
                         == store_status.sale_start_at.isoformat(timespec="minutes")
-                    ):
+                    )
+                    if matching_event:
                         store_announcement_url = event.announcement_url
                         store_match = event.match
+                        matched_store_event = True
+                    elif not matched_store_event and published > store_announcement_date:
+                        store_announcement_url = post["link"]
+                        store_match = extract_teams(f"{title}\n{text}")
+                        store_announcement_date = published
 
         if store_status and store_status.active:
             event_key = store_status.event_key or "queue"

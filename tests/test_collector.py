@@ -33,6 +33,12 @@ def post(slug: str, title: str, html: str) -> dict:
     }
 
 
+def dated_post(slug: str, title: str, html: str, published: str) -> dict:
+    result = post(slug, title, html)
+    result["date"] = published
+    return result
+
+
 class FakeSource:
     name = "fake"
     lookback_days = 7
@@ -86,11 +92,46 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(notifier.messages, [])
         collector.run_once(datetime(2026, 11, 6, 10, 5))
         self.assertEqual(len(notifier.messages), 1)
-        self.assertIn("Vendas abertas", notifier.messages[0])
-        self.assertIn("Jogo: Palmeiras x Fluminense", notifier.messages[0])
-        self.assertIn("https://palmeiras.com.br/noticias/remo/", notifier.messages[0])
+
+    def test_store_alert_uses_newest_fallback_post_unless_sale_time_matches(self) -> None:
+        class Store:
+            name = "ticket_store"
+
+            def check(self) -> StoreStatus:
+                return StoreStatus(True, "202611061000", datetime(2026, 11, 6, 10), "https://ingressospalmeiras.com.br/jogo")
+
+        older = dated_post("old", "Ingressos contra Remo", UNPARSED_HTML, "2026-11-01T10:00:00")
+        newer = dated_post("new", "Ingressos contra Vasco", UNPARSED_HTML.replace("Fluminense", "Vasco"), "2026-11-02T10:00:00")
+        notifier = FakeNotifier()
+        collector = Collector([FakeSource([older, newer])], self.storage, notifier, self.logger, store_source=Store())
+
+        collector.run_once(datetime(2026, 11, 6, 10))
+
+        queue_message = next(message for message in notifier.messages if "Vendas abertas" in message)
+        self.assertIn("/new/", queue_message)
+        self.assertIn("Palmeiras x Vasco", queue_message)
+
+    def test_store_alert_prefers_post_with_matching_sale_time(self) -> None:
+        class Store:
+            name = "ticket_store"
+
+            def check(self) -> StoreStatus:
+                return StoreStatus(True, "202611061000", datetime(2026, 11, 6, 10), "https://ingressospalmeiras.com.br/jogo")
+
+        latest = dated_post("latest", "Ingressos contra Remo", UNPARSED_HTML, "2026-11-05T10:00:00")
+        matching = dated_post("matching", "Ingressos contra Remo", PARSED_HTML, "2026-11-01T10:00:00")
+        matching["content"]["rendered"] = matching["content"]["rendered"].replace("29/10/2099 – 12h", "06/11/2026 – 10h")
+        matching["date"] = "2026-11-01T10:00:00"
+        notifier = FakeNotifier()
+        collector = Collector([FakeSource([latest, matching])], self.storage, notifier, self.logger, store_source=Store())
+
+        collector.run_once(datetime(2026, 11, 6, 10))
+
+        queue_message = next(message for message in notifier.messages if "Vendas abertas" in message)
+        self.assertIn("/matching/", queue_message)
+        self.assertIn("Jogo: Palmeiras x Remo", queue_message)
         collector.run_once(datetime(2026, 11, 6, 10, 10))
-        self.assertEqual(len(notifier.messages), 1)
+        self.assertEqual(len(notifier.messages), 2)
 
     def test_first_run_bootstraps_without_fallback(self) -> None:
         notifier = FakeNotifier()
