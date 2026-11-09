@@ -17,7 +17,12 @@ from .notifier import (
     build_unparsed_message,
 )
 from .sources.base import SaleSource
-from .sources.parsing import build_event_from_post, contains_ingresso, post_plain_text
+from .sources.parsing import (
+    build_event_from_post,
+    contains_ingresso,
+    extract_teams,
+    post_plain_text,
+)
 from .sources.store import TicketStoreSource
 from .storage import Storage
 
@@ -51,6 +56,7 @@ class Collector:
         # alerts, so deploying this feature does not spam the whole history.
         bootstrap = self.storage.count_posts() == 0
         seen_this_pass: set[str] = set()
+        store_status = None
 
         try:
             store_status = self.store_source.check() if self.store_source else None
@@ -65,18 +71,10 @@ class Collector:
                 ),
                 now,
             )
-        else:
-            if store_status and store_status.active:
-                event_key = store_status.event_key or "queue"
-                alert_key = f"store_open:{event_key}"
-                if not self.storage.store_event_seen(alert_key):
-                    message = build_store_open_message(
-                        store_status.sale_start_at, store_status.target_url, now
-                    )
-                    if self._send_alert(message, alert_key, now):
-                        self.storage.record_store_event(
-                            alert_key, now.strftime("%Y-%m-%d %H:%M:%S")
-                        )
+        store_announcement_url = None
+        store_match = None
+        store_announcement_date = ""
+        matched_store_event = False
 
         for source in self.sources:
             try:
@@ -104,7 +102,47 @@ class Collector:
                 if key in seen_this_pass:
                     continue
                 seen_this_pass.add(key)
-                self._process_post(post, key, source, now, sent, bootstrap)
+                event = self._process_post(post, key, source, now, sent, bootstrap)
+                if (
+                    store_status
+                    and store_status.active
+                    and post.get("link")
+                    and contains_ingresso(post)
+                ):
+                    published = post.get("date") or ""
+                    title, _, text = post_plain_text(post)
+                    matching_event = (
+                        event
+                        and store_status.sale_start_at
+                        and event.sale_start_at
+                        == store_status.sale_start_at.isoformat(timespec="minutes")
+                    )
+                    if matching_event:
+                        store_announcement_url = event.announcement_url
+                        store_match = event.match
+                        matched_store_event = True
+                    elif not matched_store_event and published > store_announcement_date:
+                        store_announcement_url = post["link"]
+                        store_match = extract_teams(f"{title}\n{text}")
+                        store_announcement_date = published
+
+        if store_status and store_status.active:
+            event_key = store_status.event_key or "queue"
+            alert_key = f"store_open:{event_key}"
+            if not store_announcement_url:
+                self.logger.warning("Queue detected but no official ticket announcement link was found")
+            elif not self.storage.store_event_seen(alert_key):
+                message = build_store_open_message(
+                    store_status.sale_start_at,
+                    store_status.target_url,
+                    store_announcement_url,
+                    store_match,
+                    now,
+                )
+                if self._send_alert(message, alert_key, now):
+                    self.storage.record_store_event(
+                        alert_key, now.strftime("%Y-%m-%d %H:%M:%S")
+                    )
 
         return sent
 
@@ -116,7 +154,7 @@ class Collector:
         now: datetime,
         sent: list[TicketSaleEvent],
         bootstrap: bool,
-    ) -> None:
+    ) -> TicketSaleEvent | None:
         """Parse one post, notify when relevant, and record it as seen."""
         title, _, _ = post_plain_text(post)
         is_new = not self.storage.post_seen(key)
@@ -126,7 +164,7 @@ class Collector:
             self._notify_event(event, now, sent)
         elif is_new and not bootstrap and contains_ingresso(post):
             if not self._notify_unparsed(post, title):
-                return
+                return None
 
         if is_new and not self.dry_run:
             self.storage.record_post(
@@ -139,6 +177,7 @@ class Collector:
                 parsed=event is not None,
                 first_seen_at=now.strftime("%Y-%m-%d %H:%M:%S"),
             )
+        return event
 
     def _notify_event(
         self,
