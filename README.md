@@ -16,6 +16,8 @@ No CAPTCHA, Cloudflare, or access restrictions are bypassed; no tickets are purc
 - **Source failure or empty feed** — if an official source raises an error or returns zero posts, the monitor alerts once per day per source, so a broken endpoint never turns into silent blindness.
 - **First run after deploy** records existing posts without sending fallback alerts, to avoid spamming the history.
 
+Duplicates are suppressed by a stable sale-window key: normalized match name + match date + sale start + phase. The same opponent in another season or another sale window alerts again; accent/case/punctuation variants of the same window do not.
+
 ## Setup
 
 Python 3.15 via [uv](https://docs.astral.sh/uv/). Credentials come from the OpenBot vault at runtime (never written into the repo).
@@ -45,8 +47,8 @@ Production uses OpenBot routines with `RUN_ONCE=1` three times a day (09:00, 15:
 - `sources/http_client.py` — httpx with retries/timeouts
 - `sources/parsing.py` — Diamante pre-sale schedule, match/date, ticket link and venue (home/away/neutral) extraction
 - `sources/palmeiras.py`, `sources/avanti.py` — official REST API collectors
-- `collector.py` — dedupe per (match, phase), fallback alerts for unparsed posts, notification decisions
-- `storage.py` — SQLite notification history and seen-post tracking
+- `collector.py` — stable dedupe per sale window, fallback alerts for unparsed posts, notification decisions
+- `storage.py` — SQLite notification history and normalized seen-post tracking
 - `notifier.py` — Telegram Bot API with retries
 - `scheduler.py` — 5-minute polling loop (continuous mode only)
 

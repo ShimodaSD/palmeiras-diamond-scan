@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import re
+import unicodedata
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 from zoneinfo import ZoneInfo
 
 SALE_PHASE_ANNOUNCED = "announced"
@@ -25,6 +29,42 @@ VENUE_LABELS = {
 }
 
 BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
+
+
+def normalize_match(value: str) -> str:
+    """Normalize a match label so spelling/accent variants compare equal."""
+    text = unicodedata.normalize("NFKD", value or "")
+    text = "".join(char for char in text if not unicodedata.combining(char))
+    text = re.sub(r"[^a-z0-9x]+", " ", text.lower())
+    return " ".join(text.split())
+
+
+def normalize_url(url: str) -> str:
+    """Normalize an official post URL: no query, fragment or trailing slash."""
+    raw = (url or "").strip()
+    parts = urlsplit(raw)
+    if not parts.scheme and not parts.netloc:
+        return raw.rstrip("/")
+    return urlunsplit((parts.scheme.lower(), parts.netloc.lower(), parts.path.rstrip("/"), "", ""))
+
+
+def post_identity(url: str | None, post_id: Any = None) -> str:
+    """Stable identity for an official post, independent of query strings."""
+    normalized = normalize_url(url or "")
+    if normalized:
+        return f"url:{normalized}"
+    return f"id:{post_id}" if post_id is not None else ""
+
+
+def build_event_key(
+    match: str,
+    match_date: str,
+    sale_start_at: str | None,
+    sale_phase: str,
+) -> str:
+    """Stable identity for a sale window (not just the match name)."""
+    window = (sale_start_at or "")[:16]
+    return "|".join((normalize_match(match), match_date or "TBD", window, sale_phase))
 
 
 @dataclass(frozen=True)
@@ -54,9 +94,13 @@ class TicketSaleEvent:
         return STATUS_ANNOUNCED
 
     @property
-    def dedupe_key(self) -> tuple[str, str, str]:
-        """Identity used to avoid duplicate notifications."""
-        return (self.source, self.match, self.sale_phase)
+    def dedupe_key(self) -> str:
+        """Identity used to avoid duplicate notifications.
+
+        Includes the match date and sale window so the same pairing in a
+        different fixture or season is not suppressed.
+        """
+        return build_event_key(self.match, self.match_date, self.sale_start_at, self.sale_phase)
 
     @property
     def checked_at_label(self) -> str:
