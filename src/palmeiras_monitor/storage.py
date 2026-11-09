@@ -85,8 +85,25 @@ class Storage:
                 self._conn.execute(f"ALTER TABLE notifications ADD COLUMN {name} {column_type}")
         columns = {row[1] for row in self._conn.execute("PRAGMA table_info(notifications)")}
         if "dedupe_key" in columns:
+            self._refresh_dedupe_keys()
             return
         self._rebuild_notifications()
+
+    def _refresh_dedupe_keys(self) -> None:
+        """Recompute stored keys after the identity rule changes."""
+        rows = self._conn.execute("SELECT * FROM notifications").fetchall()
+        stale = any(
+            build_event_key(
+                row["match"],
+                row["match_date"],
+                row["sale_start_at"],
+                row["sale_phase"],
+            )
+            != row["dedupe_key"]
+            for row in rows
+        )
+        if stale:
+            self._rebuild_notifications()
 
     def _rebuild_notifications(self) -> None:
         """Replace the legacy (match, phase) constraint with a dedupe_key."""

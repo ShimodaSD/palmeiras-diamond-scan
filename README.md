@@ -16,7 +16,7 @@ No CAPTCHA, Cloudflare, or access restrictions are bypassed; no tickets are purc
 - **Source failure or empty feed** — if an official source raises an error or returns zero posts, the monitor alerts once per day per source, so a broken endpoint never turns into silent blindness.
 - **First run after deploy** records existing posts without sending fallback alerts, to avoid spamming the history.
 
-Duplicates are suppressed by a stable sale-window key: normalized match name + match date + sale start + phase. The same opponent in another season or another sale window alerts again; accent/case/punctuation variants of the same window do not.
+Duplicates are suppressed by a stable fixture key: match date + canonical teams + phase. Accent, case, punctuation and country suffixes (`Estudiantes-ARG` vs `Estudiantes`) do not create a new alert, and neither does a repost of the same fixture with a shifted sale window. The same opponent in another season or another phase alerts again; when the match date is still TBD, the sale day is used as the anchor.
 
 ## Setup
 

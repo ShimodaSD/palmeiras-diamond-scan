@@ -39,6 +39,26 @@ def normalize_match(value: str) -> str:
     return " ".join(text.split())
 
 
+COUNTRY_SUFFIX_RE = re.compile(r"\s+(?:arg|uru|bra|par|chi|col|equ|per|ven|bol|mex|usa)$")
+CLUB_SUFFIX_RE = re.compile(r"\s+(?:fc|ec|sc|ac|cf|club)$")
+
+
+def _canonical_team(team: str) -> str:
+    """Drop country and generic club suffixes from a team name."""
+    team = COUNTRY_SUFFIX_RE.sub("", team)
+    team = CLUB_SUFFIX_RE.sub("", team)
+    return team.strip()
+
+
+def canonical_match(match: str) -> str:
+    """Canonical match label, tolerant to 'Estudiantes' vs 'Estudiantes-ARG'."""
+    normalized = normalize_match(match)
+    parts = re.split(r"\s+x\s+", normalized, maxsplit=1)
+    if len(parts) != 2:
+        return normalized
+    return f"{_canonical_team(parts[0])} x {_canonical_team(parts[1])}"
+
+
 def normalize_url(url: str) -> str:
     """Normalize an official post URL: no query, fragment or trailing slash."""
     raw = (url or "").strip()
@@ -62,9 +82,18 @@ def build_event_key(
     sale_start_at: str | None,
     sale_phase: str,
 ) -> str:
-    """Stable identity for a sale window (not just the match name)."""
-    window = (sale_start_at or "")[:16]
-    return "|".join((normalize_match(match), match_date or "TBD", window, sale_phase))
+    """Stable identity for a fixture phase.
+
+    Uses the match date when known, so a repost with a corrected opponent
+    spelling or a shifted sale window does not alert twice. Falls back to the
+    opponent plus the sale day when the match date is still TBD.
+    """
+    canonical = canonical_match(match)
+    if match_date and match_date != "TBD":
+        fixture = f"{match_date}|{canonical}"
+    else:
+        fixture = f"{canonical}|{(sale_start_at or '')[:10]}"
+    return f"{fixture}|{sale_phase}"
 
 
 @dataclass(frozen=True)
@@ -97,8 +126,8 @@ class TicketSaleEvent:
     def dedupe_key(self) -> str:
         """Identity used to avoid duplicate notifications.
 
-        Includes the match date and sale window so the same pairing in a
-        different fixture or season is not suppressed.
+        Based on the fixture and phase, so the same pairing in another season
+        alerts again while a repost of this fixture does not.
         """
         return build_event_key(self.match, self.match_date, self.sale_start_at, self.sale_phase)
 

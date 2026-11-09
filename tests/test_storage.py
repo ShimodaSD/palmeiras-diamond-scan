@@ -69,21 +69,24 @@ class IdentityTests(unittest.TestCase):
         self.assertEqual(post_identity(None, 1234), "id:1234")
         self.assertEqual(post_identity("", None), "")
 
-    def test_dedupe_key_ignores_source_but_not_fixture(self) -> None:
-        a = event("Palmeiras x São Paulo")
+    def test_dedupe_key_ignores_source_suffix_and_window(self) -> None:
+        a = event("Palmeiras x Estudiantes-ARG")
         b = TicketSaleEvent(
             source="avanti",
-            match="palmeiras X sao paulo",
+            match="palmeiras X estudiantes",
             match_date=a.match_date,
             sale_phase=a.sale_phase,
-            sale_start_at=a.sale_start_at,
+            sale_start_at="2026-11-11T15:00",
         )
         self.assertEqual(a.dedupe_key, b.dedupe_key)
-        self.assertNotEqual(a.dedupe_key, event("Palmeiras x São Paulo", "2027-11-20").dedupe_key)
-        self.assertNotEqual(
-            a.dedupe_key,
-            event("Palmeiras x São Paulo", sale="2026-11-11T12:00").dedupe_key,
-        )
+        self.assertNotEqual(a.dedupe_key, event("Palmeiras x Estudiantes-ARG", "2027-11-20").dedupe_key)
+
+    def test_tbd_match_uses_sale_day_as_fixture_anchor(self) -> None:
+        a = event("Palmeiras x Remo", "TBD", "2026-11-10T12:00")
+        b = event("Palmeiras x Remo", "TBD", "2026-11-10T18:00")
+        c = event("Palmeiras x Remo", "TBD", "2026-11-11T12:00")
+        self.assertEqual(a.dedupe_key, b.dedupe_key)
+        self.assertNotEqual(a.dedupe_key, c.dedupe_key)
 
 
 class DedupeStorageTests(unittest.TestCase):
@@ -109,6 +112,30 @@ class DedupeStorageTests(unittest.TestCase):
             self.storage.record(
                 event("Palmeiras x São Paulo", "2027-11-20"), "2027-11-09 09:00:00"
             )
+        )
+
+    def test_repost_with_shifted_window_is_suppressed(self) -> None:
+        self.assertTrue(self.storage.record(event("Palmeiras x Remo"), "2026-11-09 09:00:00"))
+        self.assertFalse(
+            self.storage.record(
+                event("Palmeiras x Remo", sale="2026-11-12T15:00"),
+                "2026-11-10 09:00:00",
+            )
+        )
+
+    def test_stored_keys_are_recomputed_when_identity_rule_changes(self) -> None:
+        self.assertTrue(
+            self.storage.record(event("Palmeiras x Estudiantes-ARG"), "2026-11-09 09:00:00")
+        )
+        self.storage.close()
+        conn = sqlite3.connect(self.db)
+        conn.execute("UPDATE notifications SET dedupe_key = 'legacy-format'")
+        conn.commit()
+        conn.close()
+
+        self.storage = Storage(self.db)
+        self.assertTrue(
+            self.storage.is_notified(event("Palmeiras x Estudiantes").dedupe_key)
         )
 
 
