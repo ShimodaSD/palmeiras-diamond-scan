@@ -59,6 +59,35 @@ def build_unparsed_message(title: str, link: str, published_at: str | None = Non
     )
 
 
+def build_source_failure_message(source: str, reason: str, checked_at: datetime) -> str:
+    """Build an alert for a source that raised an error during the pass."""
+    return "\n".join(
+        [
+            TELEGRAM_TITLE,
+            "",
+            f"⚠️ Monitor: a fonte \"{source}\" falhou.",
+            f"Motivo: {reason}",
+            f"⏰ Checked at: {checked_at:%Y-%m-%d %H:%M:%S}",
+            "",
+            "A checagem pode estar cega até a próxima execução.",
+        ]
+    )
+
+
+def build_empty_feed_message(source: str, checked_at: datetime) -> str:
+    """Build an alert for a source that returned no posts at all."""
+    return "\n".join(
+        [
+            TELEGRAM_TITLE,
+            "",
+            f"⚠️ Monitor: a fonte \"{source}\" não retornou nenhum post.",
+            f"⏰ Checked at: {checked_at:%Y-%m-%d %H:%M:%S}",
+            "",
+            "Pode ser falha da API ou mudança de endpoint. Verifique a fonte oficial.",
+        ]
+    )
+
+
 class TelegramNotifier:
     """Sends ticket sale notifications through the Telegram Bot API."""
 

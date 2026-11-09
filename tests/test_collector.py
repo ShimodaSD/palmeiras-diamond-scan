@@ -144,5 +144,75 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(len(notifier.messages), 1)
 
 
+class FailingSource:
+    name = "quebrada"
+    lookback_days = 7
+
+    def fetch_posts(self) -> list[dict]:
+        raise RuntimeError("api fora do ar")
+
+
+class CollectorHealthAlertTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.storage = Storage(str(Path(self.tmp.name) / "test.db"))
+        self.logger = logging.getLogger("test_health")
+        self.logger.addHandler(logging.NullHandler())
+
+    def tearDown(self) -> None:
+        self.storage.close()
+        self.tmp.cleanup()
+
+    def test_source_failure_sends_alert_once_per_day(self) -> None:
+        notifier = FakeNotifier()
+        collector = Collector([FailingSource()], self.storage, notifier, self.logger)
+
+        collector.run_once(datetime(2026, 10, 28, 9, 0))
+        self.assertEqual(len(notifier.messages), 1)
+        self.assertIn('a fonte "quebrada" falhou', notifier.messages[0])
+        self.assertIn("RuntimeError: api fora do ar", notifier.messages[0])
+
+        collector.run_once(datetime(2026, 10, 28, 15, 0))
+        self.assertEqual(len(notifier.messages), 1)
+
+        collector.run_once(datetime(2026, 10, 29, 9, 0))
+        self.assertEqual(len(notifier.messages), 2)
+
+    def test_empty_feed_sends_alert_once_per_day(self) -> None:
+        notifier = FakeNotifier()
+        collector = self.collector_empty(notifier)
+
+        collector.run_once(datetime(2026, 10, 28, 9, 0))
+        self.assertEqual(len(notifier.messages), 1)
+        self.assertIn("não retornou nenhum post", notifier.messages[0])
+
+        collector.run_once(datetime(2026, 10, 28, 21, 0))
+        self.assertEqual(len(notifier.messages), 1)
+
+    def test_health_alert_retries_after_send_failure(self) -> None:
+        notifier = FakeNotifier(fail_first=1)
+        collector = Collector([FailingSource()], self.storage, notifier, self.logger)
+
+        collector.run_once(datetime(2026, 10, 28, 9, 0))
+        self.assertEqual(notifier.messages, [])
+
+        collector.run_once(datetime(2026, 10, 28, 15, 0))
+        self.assertEqual(len(notifier.messages), 1)
+
+    def test_healthy_source_does_not_alert(self) -> None:
+        notifier = FakeNotifier()
+        collector = Collector(
+            [FakeSource([post("ok", "Ingressos", PARSED_HTML)])],
+            self.storage,
+            notifier,
+            self.logger,
+        )
+        collector.run_once(datetime(2026, 10, 28, 9, 0))
+        self.assertFalse(any("Monitor:" in message for message in notifier.messages))
+
+    def collector_empty(self, notifier: FakeNotifier) -> Collector:
+        return Collector([FakeSource([])], self.storage, notifier, self.logger)
+
+
 if __name__ == "__main__":
     unittest.main()

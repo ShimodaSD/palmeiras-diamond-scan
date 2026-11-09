@@ -13,6 +13,7 @@ No CAPTCHA, Cloudflare, or access restrictions are bypassed; no tickets are purc
 
 - **Diamond sale window found** — match, venue (Mandante / Visitante / Local neutro), sale start, status, ticket link and announcement link.
 - **New ticket post the parser could not read** — fallback alert with the post title and link, so a new layout, table or image is never silent.
+- **Source failure or empty feed** — if an official source raises an error or returns zero posts, the monitor alerts once per day per source, so a broken endpoint never turns into silent blindness.
 - **First run after deploy** records existing posts without sending fallback alerts, to avoid spamming the history.
 
 ## Setup
