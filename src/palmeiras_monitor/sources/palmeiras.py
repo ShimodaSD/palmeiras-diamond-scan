@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from ..models import TicketSaleEvent
+from typing import Any
+
 from .base import SaleSource
 from .http_client import HttpClient
-from .parsing import build_event_from_post
 
 
 class PalmeirasSource(SaleSource):
@@ -19,8 +19,9 @@ class PalmeirasSource(SaleSource):
         self.client = client or HttpClient()
         self.lookback_days = lookback_days
 
-    def fetch_sale_events(self) -> list[TicketSaleEvent]:
-        posts = self.client.get_json(
+    def fetch_posts(self) -> list[dict[str, Any]]:
+        """Fetch the latest official posts that mention tickets."""
+        return self.client.get_json(
             self.API_URL,
             params={
                 "search": self.SEARCH,
@@ -29,9 +30,3 @@ class PalmeirasSource(SaleSource):
                 "order": "desc",
             },
         )
-        events: list[TicketSaleEvent] = []
-        for post in posts:
-            event = build_event_from_post(post, self.name, self.lookback_days)
-            if event is not None:
-                events.append(event)
-        return events

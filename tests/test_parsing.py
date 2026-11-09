@@ -8,6 +8,7 @@ from datetime import datetime
 from palmeiras_monitor.models import SALE_PHASE_ANNOUNCED, SALE_PHASE_OPEN
 from palmeiras_monitor.sources.parsing import (
     build_event_from_post,
+    classify_venue,
     diamond_presale_start,
     extract_match_date,
     extract_teams,
@@ -86,6 +87,57 @@ class ParsingTests(unittest.TestCase):
         self.assertIsNotNone(event)
         assert event is not None
         self.assertEqual(event.sale_phase, SALE_PHASE_OPEN)
+
+    def test_venue_home(self) -> None:
+        text = (
+            "Os ingressos para o jogo contra o Remo, que ocorrerá na quinta-feira (05), "
+            "às 19h30, no Nubank Parque, pela 34ª rodada."
+        )
+        self.assertEqual(classify_venue(text), ("home", "Nubank Parque"))
+
+    def test_venue_away(self) -> None:
+        text = (
+            "O primeiro duelo com o Fluminense ocorrerá no dia 14 de outubro, "
+            "às 21h30, no Maracanã, no Rio de Janeiro (RJ)."
+        )
+        self.assertEqual(classify_venue(text), ("away", "Maracanã"))
+
+    def test_venue_neutral(self) -> None:
+        text = (
+            "A final da Libertadores será no dia 28 de novembro, às 17h, "
+            "no Estádio Centenário, em Montevidéu (URU)."
+        )
+        self.assertEqual(classify_venue(text), ("neutral", "Estádio Centenário"))
+
+    def test_venue_away_ignores_later_home_reference(self) -> None:
+        text = (
+            "O primeiro duelo com o River Plate-ARG, que ocorrerá no dia 17 de setembro, "
+            "às 21h30, no Monumental de Núñez, em Buenos Aires (ARG). A comercialização "
+            "segue o mesmo formato das pré-vendas realizadas no Allianz Parque – ou seja, "
+            "inicialmente estarão aptos os sócios com maior rating."
+        )
+        self.assertEqual(classify_venue(text), ("away", "Monumental de Núñez"))
+
+    def test_venue_unknown(self) -> None:
+        self.assertEqual(classify_venue("Venda de ingressos para o jogo."), ("unknown", None))
+
+    def test_event_carries_venue(self) -> None:
+        post = {
+            "title": {"rendered": "Ingressos para jogo contra Remo no Nubank Parque"},
+            "link": "https://palmeiras.com.br/noticias/remo/",
+            "content": {
+                "rendered": (
+                    "<p>O jogo contra o Remo será no Nubank Parque.</p>"
+                    "<p>1ª Pré-venda Início: 29/10/2099 – 12h – Sócios do Plano Diamante</p>"
+                )
+            },
+        }
+        event = build_event_from_post(post, "palmeiras")
+        self.assertIsNotNone(event)
+        assert event is not None
+        self.assertEqual(event.venue_type, "home")
+        self.assertEqual(event.venue, "Nubank Parque")
+        self.assertEqual(event.announcement_url, "https://palmeiras.com.br/noticias/remo/")
 
 
 if __name__ == "__main__":
