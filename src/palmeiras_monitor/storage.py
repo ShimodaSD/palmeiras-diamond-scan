@@ -53,6 +53,11 @@ CREATE TABLE IF NOT EXISTS store_events (
     event_key TEXT PRIMARY KEY,
     first_seen_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS pending_alerts (
+    alert_key TEXT PRIMARY KEY,
+    message TEXT NOT NULL,
+    sent_at TEXT
+);
 """
 )
 
@@ -273,6 +278,37 @@ class Storage:
                 "SELECT 1 FROM system_alerts WHERE alert_key = ?", (alert_key,)
             ).fetchone()
             return row is not None
+
+    def queue_alert(self, alert_key: str, message: str) -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT OR IGNORE INTO pending_alerts (alert_key, message) VALUES (?, ?)",
+                (alert_key, message),
+            )
+            self._conn.commit()
+
+    def pending_alerts(self) -> list[dict[str, str]]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT alert_key, message FROM pending_alerts WHERE sent_at IS NULL"
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def alert_delivered(self, alert_key: str) -> bool:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT 1 FROM pending_alerts WHERE alert_key = ? AND sent_at IS NOT NULL",
+                (alert_key,),
+            ).fetchone()
+            return row is not None
+
+    def mark_alert_delivered(self, alert_key: str, sent_at: str) -> None:
+        with self._lock:
+            self._conn.execute(
+                "UPDATE pending_alerts SET sent_at = ? WHERE alert_key = ?",
+                (sent_at, alert_key),
+            )
+            self._conn.commit()
 
     def store_event_seen(self, event_key: str) -> bool:
         with self._lock:
