@@ -57,6 +57,7 @@ class Collector:
         bootstrap = self.storage.count_posts() == 0
         seen_this_pass: set[str] = set()
         store_status = None
+        self._retry_pending_alerts(now)
 
         try:
             store_status = self.store_source.check() if self.store_source else None
@@ -212,17 +213,38 @@ class Collector:
         """Send the fallback alert for a new ticket post with no parsed schedule."""
         link = post.get("link") or ""
         published = (post.get("date") or "")[:10]
+        alert_key = f"unparsed:{self._post_key(post)}:{post.get('modified') or published}"
+        if self.storage.alert_delivered(alert_key):
+            return True
         message = build_unparsed_message(title, link, published)
         if self.dry_run:
             self.logger.info("[DRY RUN] would send fallback:\n%s", message)
             return True
+        self.storage.queue_alert(alert_key, message)
         try:
             self.notifier.send(message)
         except Exception:
             self.logger.exception("Failed to send fallback alert: %s", link)
             return False
+        self.storage.mark_alert_delivered(
+            alert_key, datetime.now(self.timezone).strftime("%Y-%m-%d %H:%M:%S")
+        )
         self.logger.info("Fallback alert sent: %s | %s", title, link)
         return True
+
+    def _retry_pending_alerts(self, now: datetime) -> None:
+        """Retry fallback alerts persisted by earlier collection passes."""
+        if self.dry_run:
+            return
+        for alert in self.storage.pending_alerts():
+            try:
+                self.notifier.send(alert["message"])
+            except Exception:
+                self.logger.exception("Failed to retry pending alert: %s", alert["alert_key"])
+                continue
+            self.storage.mark_alert_delivered(
+                alert["alert_key"], now.strftime("%Y-%m-%d %H:%M:%S")
+            )
 
     def _alert_once(self, alert_key: str, message: str, now: datetime) -> None:
         """Send a health alert at most once per day for the same key."""
