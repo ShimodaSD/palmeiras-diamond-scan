@@ -35,7 +35,7 @@ Production uses OpenBot routines with `RUN_ONCE=1` three times a day (09:00, 15:
 | `TELEGRAM_BOT_TOKEN` | — | required, `@ShimodaNotificaBot` |
 | `TELEGRAM_CHAT_ID` | — | required, your private chat ID |
 | `CHECK_INTERVAL_SECONDS` | 300 | 5-minute polling |
-| `TIMEZONE` | America/Sao_Paulo | local time |
+| `TIMEZONE` | America/Sao_Paulo | IANA timezone used for timestamps, lookback and match-date year rollover |
 | `DATABASE_PATH` | data/notifications.db | SQLite history |
 | `DRY_RUN` | 0 | log instead of send |
 | `RUN_ONCE` | 0 | single pass then exit |

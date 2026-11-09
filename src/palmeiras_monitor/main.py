@@ -27,6 +27,7 @@ def run() -> int:
         notifier=notifier,
         logger=logger,
         dry_run=config.dry_run,
+        timezone=config.tzinfo,
     )
     if config.run_once:
         sent = collector.run_once()

@@ -55,6 +55,36 @@ class ParsingTests(unittest.TestCase):
             "2026-11-28",
         )
 
+    def test_extract_match_date_rolls_over_year(self) -> None:
+        self.assertEqual(
+            extract_match_date("O jogo será no dia 10 de janeiro.", datetime(2026, 12, 20)),
+            "2027-01-10",
+        )
+
+    def test_extract_match_date_keeps_upcoming_same_year(self) -> None:
+        self.assertEqual(
+            extract_match_date("O jogo será no dia 10 de janeiro.", datetime(2026, 1, 2)),
+            "2026-01-10",
+        )
+
+    def test_build_event_respects_provided_now(self) -> None:
+        post = {
+            "title": {"rendered": "Ingressos para jogo contra Remo"},
+            "link": "https://palmeiras.com.br/noticias/remo/",
+            "content": {
+                "rendered": (
+                    "<p>O jogo contra o Remo será no dia 05 de novembro.</p>"
+                    "<p>1ª Pré-venda Início: 29/10/2026 – 12h – Sócios do Plano Diamante</p>"
+                )
+            },
+        }
+        self.assertIsNotNone(
+            build_event_from_post(post, "palmeiras", 7, now=datetime(2026, 10, 28))
+        )
+        self.assertIsNone(
+            build_event_from_post(post, "palmeiras", 7, now=datetime(2026, 12, 31))
+        )
+
     def test_extract_ticket_url(self) -> None:
         self.assertEqual(
             extract_ticket_url(SAMPLE_HTML, "https://palmeiras.com.br/noticias/x/"),
