@@ -73,6 +73,13 @@ def build_unparsed_message(title: str, link: str, published_at: str | None = Non
     )
 
 
+def build_updated_message(event: TicketSaleEvent, checked_at: datetime) -> str:
+    """Build a notice when an already-seen ticket announcement was edited."""
+    return build_message(event, checked_at).replace(
+        TELEGRAM_TITLE, f"{TELEGRAM_TITLE}\n\n✏️ A notícia oficial de ingressos foi atualizada.", 1
+    )
+
+
 def build_source_failure_message(source: str, reason: str, checked_at: datetime) -> str:
     """Build an alert for a source that raised an error during the pass."""
     return "\n".join(
