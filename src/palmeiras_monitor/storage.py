@@ -256,6 +256,14 @@ class Storage:
             ).fetchone()
             return row is not None
 
+    def get_post(self, post_key: str) -> dict[str, Any] | None:
+        """Return the last processed revision of a post."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM seen_posts WHERE post_key = ?", (post_key,)
+            ).fetchone()
+            return dict(row) if row else None
+
     def record_post(
         self,
         post_key: str,
@@ -270,9 +278,12 @@ class Storage:
         """Record a post as seen; return False when it was already recorded."""
         with self._lock:
             cursor = self._conn.execute(
-                "INSERT OR IGNORE INTO seen_posts "
+                "INSERT INTO seen_posts "
                 "(post_key, source, title, url, published_at, modified_at, parsed, first_seen_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(post_key) DO UPDATE SET title=excluded.title, url=excluded.url, "
+                "published_at=excluded.published_at, modified_at=excluded.modified_at, "
+                "parsed=excluded.parsed",
                 (
                     post_key,
                     source,
