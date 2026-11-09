@@ -88,6 +88,30 @@ def build_empty_feed_message(source: str, checked_at: datetime) -> str:
     )
 
 
+def build_store_open_message(
+    sale_start_at: datetime | None,
+    target_url: str | None,
+    checked_at: datetime,
+) -> str:
+    """Build an alert for a live queue at the official ticket store."""
+    start = (
+        sale_start_at.strftime("%d/%m/%Y %H:%M") if sale_start_at else "horário não informado"
+    )
+    return "\n".join(
+        [
+            TELEGRAM_TITLE,
+            "",
+            "🟢 Vendas abertas na bilheteria oficial.",
+            f"💎 Início informado pela bilheteria: {start}",
+            "🔗 Bilheteria: https://ingressospalmeiras.com.br/",
+            f"🎯 Destino oficial: {target_url or 'TBD'}",
+            f"⏰ Checked at: {checked_at:%Y-%m-%d %H:%M:%S}",
+            "",
+            "Confirme o jogo e o setor no link antes de comprar.",
+        ]
+    )
+
+
 class TelegramNotifier:
     """Sends ticket sale notifications through the Telegram Bot API."""
 

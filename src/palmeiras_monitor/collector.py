@@ -13,10 +13,12 @@ from .notifier import (
     build_empty_feed_message,
     build_message,
     build_source_failure_message,
+    build_store_open_message,
     build_unparsed_message,
 )
 from .sources.base import SaleSource
 from .sources.parsing import build_event_from_post, contains_ingresso, post_plain_text
+from .sources.store import TicketStoreSource
 from .storage import Storage
 
 
@@ -31,6 +33,7 @@ class Collector:
         logger: logging.Logger,
         dry_run: bool = False,
         timezone: ZoneInfo | None = None,
+        store_source: TicketStoreSource | None = None,
     ) -> None:
         self.sources = sources
         self.storage = storage
@@ -38,6 +41,7 @@ class Collector:
         self.logger = logger
         self.dry_run = dry_run
         self.timezone = timezone or BRAZIL_TZ
+        self.store_source = store_source
 
     def run_once(self, checked_at: datetime | None = None) -> list[TicketSaleEvent]:
         """Run a single collection pass and alert on new events or unparsed posts."""
@@ -47,6 +51,32 @@ class Collector:
         # alerts, so deploying this feature does not spam the whole history.
         bootstrap = self.storage.count_posts() == 0
         seen_this_pass: set[str] = set()
+
+        try:
+            store_status = self.store_source.check() if self.store_source else None
+        except Exception as exc:
+            self.logger.exception("Ticket store probe failed")
+            self._alert_once(
+                f"source_failure:{self.store_source.name if self.store_source else 'ticket_store'}:{now.date().isoformat()}",
+                build_source_failure_message(
+                    self.store_source.name if self.store_source else "ticket_store",
+                    self._reason(exc),
+                    now,
+                ),
+                now,
+            )
+        else:
+            if store_status and store_status.active:
+                event_key = store_status.event_key or "queue"
+                alert_key = f"store_open:{event_key}"
+                if not self.storage.store_event_seen(alert_key):
+                    message = build_store_open_message(
+                        store_status.sale_start_at, store_status.target_url, now
+                    )
+                    if self._send_alert(message, alert_key, now):
+                        self.storage.record_store_event(
+                            alert_key, now.strftime("%Y-%m-%d %H:%M:%S")
+                        )
 
         for source in self.sources:
             try:
@@ -159,16 +189,20 @@ class Collector:
         """Send a health alert at most once per day for the same key."""
         if self.storage.alert_sent(alert_key):
             return
+        if self._send_alert(message, alert_key, now):
+            self.storage.record_alert(alert_key, now.strftime("%Y-%m-%d %H:%M:%S"))
+
+    def _send_alert(self, message: str, alert_key: str, now: datetime) -> bool:
         if self.dry_run:
-            self.logger.info("[DRY RUN] would send health alert:\n%s", message)
-            return
+            self.logger.info("[DRY RUN] would send alert:\n%s", message)
+            return False
         try:
             self.notifier.send(message)
         except Exception:
-            self.logger.exception("Failed to send health alert: %s", alert_key)
-            return
-        self.storage.record_alert(alert_key, now.strftime("%Y-%m-%d %H:%M:%S"))
-        self.logger.info("Health alert sent: %s", alert_key)
+            self.logger.exception("Failed to send alert: %s", alert_key)
+            return False
+        self.logger.info("Alert sent: %s at %s", alert_key, now)
+        return True
 
     @staticmethod
     def _reason(exc: Exception) -> str:

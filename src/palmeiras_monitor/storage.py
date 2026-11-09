@@ -49,6 +49,10 @@ CREATE TABLE IF NOT EXISTS system_alerts (
     alert_key TEXT PRIMARY KEY,
     sent_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS store_events (
+    event_key TEXT PRIMARY KEY,
+    first_seen_at TEXT NOT NULL
+);
 """
 )
 
@@ -269,6 +273,20 @@ class Storage:
                 "SELECT 1 FROM system_alerts WHERE alert_key = ?", (alert_key,)
             ).fetchone()
             return row is not None
+
+    def store_event_seen(self, event_key: str) -> bool:
+        with self._lock:
+            return self._conn.execute(
+                "SELECT 1 FROM store_events WHERE event_key = ?", (event_key,)
+            ).fetchone() is not None
+
+    def record_store_event(self, event_key: str, first_seen_at: str) -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT OR IGNORE INTO store_events (event_key, first_seen_at) VALUES (?, ?)",
+                (event_key, first_seen_at),
+            )
+            self._conn.commit()
 
     def record_alert(self, alert_key: str, sent_at: str) -> bool:
         """Record a health alert; return False when it was already recorded."""

@@ -17,8 +17,12 @@ DEFAULT_USER_AGENT = (
     "Chrome/124.0 Safari/537.36"
 )
 
-# Only official Palmeiras hosts may be requested or reached through redirects.
-ALLOWED_HOSTS = {"palmeiras.com.br", "www.palmeiras.com.br"}
+# Only official Palmeiras and ticketing hosts may be requested or reached through redirects.
+ALLOWED_HOSTS = {
+    "palmeiras.com.br",
+    "www.palmeiras.com.br",
+    "ingressospalmeiras.com.br",
+}
 MAX_REDIRECTS = 5
 
 
@@ -35,7 +39,7 @@ class HttpClient:
         self.timeout = timeout
         self.attempts = attempts
         self.headers = {"User-Agent": user_agent, "Accept-Language": "pt-BR,pt;q=0.9"}
-        self.allowed_hosts = allowed_hosts or ALLOWED_HOSTS
+        self.allowed_hosts = ALLOWED_HOSTS if allowed_hosts is None else allowed_hosts
 
     def check_host(self, url: str) -> None:
         """Raise when a URL does not point at an allowed official host."""
@@ -84,3 +88,17 @@ class HttpClient:
     def get_text(self, url: str, params: dict[str, Any] | None = None) -> str:
         """Fetch a URL and return its text body."""
         return self._get(url, params).text
+
+    def probe(self, url: str) -> httpx.Response:
+        """Single request that never follows redirects.
+
+        Used to observe the official store's queue redirect without entering
+        the waiting room.
+        """
+        self.check_host(url)
+        return httpx.get(
+            url,
+            headers=self.headers,
+            timeout=self.timeout,
+            follow_redirects=False,
+        )
