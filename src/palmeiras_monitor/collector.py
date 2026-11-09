@@ -12,9 +12,12 @@ from .notifier import (
     TelegramNotifier,
     build_empty_feed_message,
     build_message,
+    build_sale_change_message,
+    build_sale_change_message,
     build_source_failure_message,
     build_store_open_message,
     build_unparsed_message,
+    build_updated_message,
 )
 from .sources.base import SaleSource
 from .sources.parsing import (
@@ -167,16 +170,25 @@ class Collector:
     ) -> TicketSaleEvent | None:
         """Parse one post, notify when relevant, and record it as seen."""
         title, _, _ = post_plain_text(post)
-        is_new = not self.storage.post_seen(key)
+        previous = self.storage.get_post(key)
+        is_new = previous is None
+        modified = post.get("modified")
+        edited = previous is not None and modified and modified != previous["modified_at"]
         event = build_event_from_post(post, source.name, source.lookback_days, now=now)
 
-        if event is not None:
+        if edited and contains_ingresso(post):
+            if event is not None:
+                if not self._notify_update(event, now):
+                    return
+            elif not self._notify_unparsed(post, title):
+                return
+        elif event is not None:
             self._notify_event(event, now, sent)
         elif is_new and not bootstrap and contains_ingresso(post):
             if not self._notify_unparsed(post, title):
                 return None
 
-        if is_new and not self.dry_run:
+        if (is_new or edited) and not self.dry_run:
             self.storage.record_post(
                 post_key=key,
                 source=source.name,
@@ -189,6 +201,29 @@ class Collector:
             )
         return event
 
+    def _notify_update(self, event: TicketSaleEvent, now: datetime) -> bool:
+        """Send an update for a changed ticket post, retrying until delivered."""
+        previous = self.storage.get_notification(event.dedupe_key)
+        if previous and previous["sale_start_at"] != event.sale_start_at:
+            message = build_sale_change_message(event, previous["sale_start_at"], now)
+        elif previous:
+            message = build_updated_message(event, now)
+        else:
+            message = build_message(event, now)
+        if self.dry_run:
+            self.logger.info("[DRY RUN] would send update:\n%s", message)
+            return True
+        try:
+            self.notifier.send(message)
+        except Exception:
+            self.logger.exception("Failed to send edited-post alert: %s", event.announcement_url)
+            return False
+        if previous:
+            self.storage.update_notification(event, now.strftime("%Y-%m-%d %H:%M:%S"))
+        else:
+            self.storage.record(event, now.strftime("%Y-%m-%d %H:%M:%S"))
+        return True
+
     def _notify_event(
         self,
         event: TicketSaleEvent,
@@ -196,7 +231,21 @@ class Collector:
         sent: list[TicketSaleEvent],
     ) -> None:
         """Send a parsed event alert, isolating failures per event."""
-        if self.storage.is_notified(event.dedupe_key):
+        previous = self.storage.get_notification(event.dedupe_key)
+        if previous:
+            if previous["sale_start_at"] == event.sale_start_at:
+                return
+            message = build_sale_change_message(event, previous["sale_start_at"], now)
+            if self.dry_run:
+                self.logger.info("[DRY RUN] would send schedule update:\n%s", message)
+            else:
+                try:
+                    self.notifier.send(message)
+                except Exception:
+                    self.logger.exception("Failed to notify sale-time change: %s", event.match)
+                    return
+            self.storage.update_notification(event, now.strftime("%Y-%m-%d %H:%M:%S"))
+            self.logger.info("Sale time updated: %s | %s", event.match, event.sale_start_at)
             return
         message = build_message(event, now)
         if self.dry_run:

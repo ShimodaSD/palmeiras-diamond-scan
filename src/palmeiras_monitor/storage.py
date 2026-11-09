@@ -214,6 +214,27 @@ class Storage:
             ).fetchone()
             return row is not None
 
+    def get_notification(self, dedupe_key: str) -> dict[str, Any] | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM notifications WHERE dedupe_key = ?", (dedupe_key,)
+            ).fetchone()
+            return dict(row) if row else None
+
+    def update_notification(self, event: TicketSaleEvent, notified_at: str) -> None:
+        with self._lock:
+            self._conn.execute(
+                "UPDATE notifications SET source=?, match=?, match_date=?, sale_phase=?, "
+                "sale_start_at=?, official_url=?, venue_type=?, venue=?, announcement_url=?, "
+                "status=?, notified_at=? WHERE dedupe_key=?",
+                (
+                    event.source, event.match, event.match_date, event.sale_phase,
+                    event.sale_start_at, event.official_url, event.venue_type, event.venue,
+                    event.announcement_url, event.status, notified_at, event.dedupe_key,
+                ),
+            )
+            self._conn.commit()
+
     def record(self, event: TicketSaleEvent, notified_at: str) -> bool:
         """Insert a notification record; return False when it was a duplicate."""
         with self._lock:
@@ -264,6 +285,14 @@ class Storage:
             ).fetchone()
             return row is not None
 
+    def get_post(self, post_key: str) -> dict[str, Any] | None:
+        """Return the last processed revision of a post."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM seen_posts WHERE post_key = ?", (post_key,)
+            ).fetchone()
+            return dict(row) if row else None
+
     def record_post(
         self,
         post_key: str,
@@ -278,9 +307,12 @@ class Storage:
         """Record a post as seen; return False when it was already recorded."""
         with self._lock:
             cursor = self._conn.execute(
-                "INSERT OR IGNORE INTO seen_posts "
+                "INSERT INTO seen_posts "
                 "(post_key, source, title, url, published_at, modified_at, parsed, first_seen_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(post_key) DO UPDATE SET title=excluded.title, url=excluded.url, "
+                "published_at=excluded.published_at, modified_at=excluded.modified_at, "
+                "parsed=excluded.parsed",
                 (
                     post_key,
                     source,
