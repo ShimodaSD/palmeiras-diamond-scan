@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from .models import BRAZIL_TZ, TicketSaleEvent
+from .models import BRAZIL_TZ, TicketSaleEvent, post_identity
 from .notifier import (
     TelegramNotifier,
     build_empty_feed_message,
@@ -117,7 +117,7 @@ class Collector:
         sent: list[TicketSaleEvent],
     ) -> None:
         """Send a parsed event alert, isolating failures per event."""
-        if self.storage.is_notified(event.match, event.sale_phase):
+        if self.storage.is_notified(event.dedupe_key):
             return
         message = build_message(event, now)
         if self.dry_run:
@@ -177,5 +177,5 @@ class Collector:
 
     @staticmethod
     def _post_key(post: dict[str, Any]) -> str:
-        """Stable identity for a WordPress post."""
-        return str(post.get("link") or post.get("id") or "")
+        """Stable identity for a WordPress post (normalized URL, else id)."""
+        return post_identity(post.get("link"), post.get("id"))

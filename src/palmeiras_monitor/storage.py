@@ -7,9 +7,9 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from .models import TicketSaleEvent
+from .models import TicketSaleEvent, build_event_key, post_identity
 
-SCHEMA = """
+NOTIFICATIONS_TABLE = """
 CREATE TABLE IF NOT EXISTS notifications (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     source TEXT NOT NULL,
@@ -23,9 +23,12 @@ CREATE TABLE IF NOT EXISTS notifications (
     announcement_url TEXT,
     status TEXT NOT NULL,
     notified_at TEXT NOT NULL,
-    UNIQUE (match, sale_phase)
+    dedupe_key TEXT NOT NULL,
+    UNIQUE (dedupe_key)
 );
+"""
 
+SEEN_POSTS_TABLE = """
 CREATE TABLE IF NOT EXISTS seen_posts (
     post_key TEXT PRIMARY KEY,
     source TEXT NOT NULL,
@@ -36,12 +39,18 @@ CREATE TABLE IF NOT EXISTS seen_posts (
     parsed INTEGER NOT NULL,
     first_seen_at TEXT NOT NULL
 );
+"""
 
+SCHEMA = (
+    NOTIFICATIONS_TABLE
+    + SEEN_POSTS_TABLE
+    + """
 CREATE TABLE IF NOT EXISTS system_alerts (
     alert_key TEXT PRIMARY KEY,
     sent_at TEXT NOT NULL
 );
 """
+)
 
 NEW_NOTIFICATION_COLUMNS = {
     "venue_type": "TEXT",
@@ -64,23 +73,111 @@ class Storage:
         self._lock = threading.RLock()
 
     def _migrate(self) -> None:
-        """Add columns introduced after the first schema version."""
+        """Bring older databases to the current schema without losing history."""
+        self._migrate_notifications()
+        self._migrate_seen_posts()
+
+    def _migrate_notifications(self) -> None:
+        """Add new columns and rebuild when the old unique constraint exists."""
         columns = {row[1] for row in self._conn.execute("PRAGMA table_info(notifications)")}
         for name, column_type in NEW_NOTIFICATION_COLUMNS.items():
             if name not in columns:
                 self._conn.execute(f"ALTER TABLE notifications ADD COLUMN {name} {column_type}")
+        columns = {row[1] for row in self._conn.execute("PRAGMA table_info(notifications)")}
+        if "dedupe_key" in columns:
+            self._refresh_dedupe_keys()
+            return
+        self._rebuild_notifications()
+
+    def _refresh_dedupe_keys(self) -> None:
+        """Recompute stored keys after the identity rule changes."""
+        rows = self._conn.execute("SELECT * FROM notifications").fetchall()
+        stale = any(
+            build_event_key(
+                row["match"],
+                row["match_date"],
+                row["sale_start_at"],
+                row["sale_phase"],
+            )
+            != row["dedupe_key"]
+            for row in rows
+        )
+        if stale:
+            self._rebuild_notifications()
+
+    def _rebuild_notifications(self) -> None:
+        """Replace the legacy (match, phase) constraint with a dedupe_key."""
+        rows = self._conn.execute("SELECT * FROM notifications").fetchall()
+        self._conn.execute("ALTER TABLE notifications RENAME TO notifications_legacy")
+        self._conn.execute(NOTIFICATIONS_TABLE)
+        for row in rows:
+            key = build_event_key(
+                row["match"],
+                row["match_date"],
+                row["sale_start_at"],
+                row["sale_phase"],
+            )
+            self._conn.execute(
+                "INSERT OR IGNORE INTO notifications "
+                "(source, match, match_date, sale_phase, sale_start_at, official_url, "
+                "venue_type, venue, announcement_url, status, notified_at, dedupe_key) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    row["source"],
+                    row["match"],
+                    row["match_date"],
+                    row["sale_phase"],
+                    row["sale_start_at"],
+                    row["official_url"],
+                    row["venue_type"],
+                    row["venue"],
+                    row["announcement_url"],
+                    row["status"],
+                    row["notified_at"],
+                    key,
+                ),
+            )
+        self._conn.execute("DROP TABLE notifications_legacy")
+
+    def _migrate_seen_posts(self) -> None:
+        """Normalize legacy post keys (raw URLs) to the stable identity format."""
+        rows = self._conn.execute("SELECT * FROM seen_posts").fetchall()
+        if not any(not str(row["post_key"]).startswith(("url:", "id:")) for row in rows):
+            return
+        self._conn.execute("ALTER TABLE seen_posts RENAME TO seen_posts_legacy")
+        self._conn.execute(SEEN_POSTS_TABLE)
+        for row in rows:
+            key = row["post_key"]
+            if not str(key).startswith(("url:", "id:")):
+                key = post_identity(row["url"], key)
+            self._conn.execute(
+                "INSERT OR IGNORE INTO seen_posts "
+                "(post_key, source, title, url, published_at, modified_at, parsed, first_seen_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    key,
+                    row["source"],
+                    row["title"],
+                    row["url"],
+                    row["published_at"],
+                    row["modified_at"],
+                    row["parsed"],
+                    row["first_seen_at"],
+                ),
+            )
+        self._conn.execute("DROP TABLE seen_posts_legacy")
 
     def close(self) -> None:
         """Close the database connection."""
         with self._lock:
             self._conn.close()
 
-    def is_notified(self, match: str, sale_phase: str) -> bool:
-        """Return True when this (match, phase) was already notified."""
+    def is_notified(self, dedupe_key: str) -> bool:
+        """Return True when this sale window was already notified."""
         with self._lock:
             row = self._conn.execute(
-                "SELECT 1 FROM notifications WHERE match = ? AND sale_phase = ?",
-                (match, sale_phase),
+                "SELECT 1 FROM notifications WHERE dedupe_key = ?",
+                (dedupe_key,),
             ).fetchone()
             return row is not None
 
@@ -90,8 +187,8 @@ class Storage:
             cursor = self._conn.execute(
                 "INSERT OR IGNORE INTO notifications "
                 "(source, match, match_date, sale_phase, sale_start_at, official_url, "
-                "venue_type, venue, announcement_url, status, notified_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "venue_type, venue, announcement_url, status, notified_at, dedupe_key) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     event.source,
                     event.match,
@@ -104,6 +201,7 @@ class Storage:
                     event.announcement_url,
                     event.status,
                     notified_at,
+                    event.dedupe_key,
                 ),
             )
             self._conn.commit()
