@@ -13,6 +13,7 @@ from .notifier import (
     build_empty_feed_message,
     build_message,
     build_sale_change_message,
+    build_sale_change_message,
     build_source_failure_message,
     build_store_open_message,
     build_unparsed_message,
@@ -153,7 +154,13 @@ class Collector:
 
     def _notify_update(self, event: TicketSaleEvent, now: datetime) -> bool:
         """Send an update for a changed ticket post, retrying until delivered."""
-        message = build_updated_message(event, now)
+        previous = self.storage.get_notification(event.dedupe_key)
+        if previous and previous["sale_start_at"] != event.sale_start_at:
+            message = build_sale_change_message(event, previous["sale_start_at"], now)
+        elif previous:
+            message = build_updated_message(event, now)
+        else:
+            message = build_message(event, now)
         if self.dry_run:
             self.logger.info("[DRY RUN] would send update:\n%s", message)
             return True
@@ -162,6 +169,10 @@ class Collector:
         except Exception:
             self.logger.exception("Failed to send edited-post alert: %s", event.announcement_url)
             return False
+        if previous:
+            self.storage.update_notification(event, now.strftime("%Y-%m-%d %H:%M:%S"))
+        else:
+            self.storage.record(event, now.strftime("%Y-%m-%d %H:%M:%S"))
         return True
 
     def _notify_event(
