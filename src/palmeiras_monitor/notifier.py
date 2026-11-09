@@ -92,6 +92,7 @@ def build_store_open_message(
     sale_start_at: datetime | None,
     target_url: str | None,
     announcement_url: str | None,
+    match: str | None,
     checked_at: datetime,
 ) -> str:
     """Build an alert for a live queue at the official ticket store."""
@@ -103,6 +104,7 @@ def build_store_open_message(
             TELEGRAM_TITLE,
             "",
             "🟢 Vendas abertas na bilheteria oficial.",
+            f"⚽ Jogo: {match or 'não identificado'}",
             f"💎 Início informado pela bilheteria: {start}",
             "🔗 Bilheteria: https://ingressospalmeiras.com.br/",
             f"🎯 Destino oficial: {target_url or 'TBD'}",

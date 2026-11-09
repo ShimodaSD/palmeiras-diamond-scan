@@ -17,7 +17,12 @@ from .notifier import (
     build_unparsed_message,
 )
 from .sources.base import SaleSource
-from .sources.parsing import build_event_from_post, contains_ingresso, post_plain_text
+from .sources.parsing import (
+    build_event_from_post,
+    contains_ingresso,
+    extract_teams,
+    post_plain_text,
+)
 from .sources.store import TicketStoreSource
 from .storage import Storage
 
@@ -67,6 +72,7 @@ class Collector:
                 now,
             )
         store_announcement_url = None
+        store_match = None
 
         for source in self.sources:
             try:
@@ -102,6 +108,8 @@ class Collector:
                     and contains_ingresso(post)
                 ):
                     store_announcement_url = store_announcement_url or post["link"]
+                    title, _, text = post_plain_text(post)
+                    store_match = store_match or extract_teams(f"{title}\n{text}")
                     if (
                         event
                         and store_status.sale_start_at
@@ -109,6 +117,7 @@ class Collector:
                         == store_status.sale_start_at.isoformat(timespec="minutes")
                     ):
                         store_announcement_url = event.announcement_url
+                        store_match = event.match
 
         if store_status and store_status.active:
             event_key = store_status.event_key or "queue"
@@ -120,6 +129,7 @@ class Collector:
                     store_status.sale_start_at,
                     store_status.target_url,
                     store_announcement_url,
+                    store_match,
                     now,
                 )
                 if self._send_alert(message, alert_key, now):

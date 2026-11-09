@@ -87,6 +87,7 @@ class CollectorTests(unittest.TestCase):
         collector.run_once(datetime(2026, 11, 6, 10, 5))
         self.assertEqual(len(notifier.messages), 1)
         self.assertIn("Vendas abertas", notifier.messages[0])
+        self.assertIn("Jogo: Palmeiras x Fluminense", notifier.messages[0])
         self.assertIn("https://palmeiras.com.br/noticias/remo/", notifier.messages[0])
         collector.run_once(datetime(2026, 11, 6, 10, 10))
         self.assertEqual(len(notifier.messages), 1)
