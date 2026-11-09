@@ -9,6 +9,7 @@ from datetime import datetime
 from pathlib import Path
 
 from palmeiras_monitor.collector import Collector
+from palmeiras_monitor.sources.store import StoreStatus
 from palmeiras_monitor.storage import Storage
 
 PARSED_HTML = (
@@ -70,6 +71,23 @@ class CollectorTests(unittest.TestCase):
 
     def collector(self, posts: list[dict], notifier: FakeNotifier) -> Collector:
         return Collector([FakeSource(posts)], self.storage, notifier, self.logger)
+
+    def test_live_store_queue_alerts_once_and_retries_after_send_failure(self) -> None:
+        class Store:
+            name = "ticket_store"
+
+            def check(self) -> StoreStatus:
+                return StoreStatus(True, "202611061000", datetime(2026, 11, 6, 10), "https://ingressospalmeiras.com.br/jogo")
+
+        notifier = FakeNotifier(fail_first=1)
+        collector = Collector([], self.storage, notifier, self.logger, store_source=Store())
+        collector.run_once(datetime(2026, 11, 6, 10))
+        self.assertEqual(notifier.messages, [])
+        collector.run_once(datetime(2026, 11, 6, 10, 5))
+        self.assertEqual(len(notifier.messages), 1)
+        self.assertIn("Vendas abertas", notifier.messages[0])
+        collector.run_once(datetime(2026, 11, 6, 10, 10))
+        self.assertEqual(len(notifier.messages), 1)
 
     def test_first_run_bootstraps_without_fallback(self) -> None:
         notifier = FakeNotifier()

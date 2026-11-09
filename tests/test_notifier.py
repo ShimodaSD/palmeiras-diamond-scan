@@ -16,6 +16,7 @@ from palmeiras_monitor.notifier import (
     build_empty_feed_message,
     build_message,
     build_source_failure_message,
+    build_store_open_message,
     build_unparsed_message,
 )
 
@@ -76,6 +77,15 @@ class MessageContentTests(unittest.TestCase):
     def test_empty_feed_message_names_source(self) -> None:
         message = build_empty_feed_message("avanti", datetime(2026, 10, 28, 9, 0))
         self.assertIn('"avanti" não retornou nenhum post', message)
+
+    def test_store_open_message_points_to_official_store(self) -> None:
+        message = build_store_open_message(
+            datetime(2026, 11, 6, 10),
+            "https://ingressospalmeiras.com.br/jogo",
+            datetime(2026, 11, 6, 10),
+        )
+        self.assertIn("Vendas abertas", message)
+        self.assertIn("https://ingressospalmeiras.com.br/jogo", message)
 
 
 if __name__ == "__main__":

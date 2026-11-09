@@ -10,6 +10,7 @@ from .logging_setup import configure_logging
 from .notifier import TelegramNotifier
 from .scheduler import TicketMonitorScheduler
 from .sources import DEFAULT_SOURCES
+from .sources.store import TicketStoreSource
 from .storage import Storage
 
 
@@ -28,6 +29,7 @@ def run() -> int:
         logger=logger,
         dry_run=config.dry_run,
         timezone=config.tzinfo,
+        store_source=TicketStoreSource(),
     )
     if config.run_once:
         sent = collector.run_once()
