@@ -118,7 +118,11 @@ def extract_teams(text: str) -> str | None:
 
 
 def extract_match_date(text: str, reference: datetime) -> str | None:
-    """Extract a 'dia DD de mês' date and return it as ISO."""
+    """Extract a 'dia DD de mês' date and return it as ISO.
+
+    The year is rolled forward when the month/day already passed relative to
+    the reference (e.g. a January match announced in December).
+    """
     match = DAY_MONTH_RE.search(text)
     if not match:
         return None
@@ -126,10 +130,14 @@ def extract_match_date(text: str, reference: datetime) -> str | None:
     if month is None:
         return None
     day = int(match.group(1))
-    try:
-        return datetime(reference.year, month, day).date().isoformat()
-    except ValueError:
-        return None
+    for year in (reference.year, reference.year + 1):
+        try:
+            candidate = datetime(year, month, day).date()
+        except ValueError:
+            continue
+        if candidate >= reference.date():
+            return candidate.isoformat()
+    return None
 
 
 def extract_ticket_url(html: str, fallback: str | None) -> str | None:
@@ -175,6 +183,7 @@ def build_event_from_post(
     post: dict[str, Any],
     source: str,
     lookback_days: int = 30,
+    now: datetime | None = None,
 ) -> TicketSaleEvent | None:
     """Turn a WordPress post into a TicketSaleEvent, or None when irrelevant."""
     title, html, text = post_plain_text(post)
@@ -188,15 +197,16 @@ def build_event_from_post(
     if sale_start is None:
         return None
 
-    now = datetime.now(BRAZIL_TZ).replace(tzinfo=None)
-    if sale_start < now - timedelta(days=lookback_days):
+    current = now or datetime.now(BRAZIL_TZ)
+    current_naive = current.replace(tzinfo=None) if current.tzinfo else current
+    if sale_start < current_naive - timedelta(days=lookback_days):
         return None
 
     match = extract_teams(combined) or title or "Palmeiras"
     match_date = extract_match_date(text, sale_start) or "TBD"
     if match_date != "TBD":
         try:
-            if datetime.fromisoformat(match_date).date() < now.date():
+            if datetime.fromisoformat(match_date).date() < current_naive.date():
                 return None
         except ValueError:
             pass

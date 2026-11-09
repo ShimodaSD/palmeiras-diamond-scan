@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 
@@ -22,6 +23,11 @@ class Config:
     log_level: str = "INFO"
     dry_run: bool = False
     run_once: bool = False
+
+    @property
+    def tzinfo(self) -> ZoneInfo:
+        """Resolve the configured IANA timezone."""
+        return ZoneInfo(self.timezone)
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -43,7 +49,7 @@ def _as_bool(value: str) -> bool:
 
 
 def validate_config(config: Config) -> None:
-    """Fail fast when required secrets are missing."""
+    """Fail fast when required secrets are missing or the timezone is invalid."""
     missing = [
         name
         for name, value in (
@@ -54,3 +60,7 @@ def validate_config(config: Config) -> None:
     ]
     if missing:
         raise ValueError(f"Missing required environment variables: {', '.join(missing)}")
+    try:
+        config.tzinfo
+    except Exception as exc:
+        raise ValueError(f"Invalid TIMEZONE {config.timezone!r}: {exc}") from exc

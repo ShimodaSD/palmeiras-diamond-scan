@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from .models import BRAZIL_TZ, TicketSaleEvent
 from .notifier import TelegramNotifier, build_message, build_unparsed_message
@@ -23,16 +24,18 @@ class Collector:
         notifier: TelegramNotifier,
         logger: logging.Logger,
         dry_run: bool = False,
+        timezone: ZoneInfo | None = None,
     ) -> None:
         self.sources = sources
         self.storage = storage
         self.notifier = notifier
         self.logger = logger
         self.dry_run = dry_run
+        self.timezone = timezone or BRAZIL_TZ
 
     def run_once(self, checked_at: datetime | None = None) -> list[TicketSaleEvent]:
         """Run a single collection pass and alert on new events or unparsed posts."""
-        now = checked_at or datetime.now(BRAZIL_TZ)
+        now = checked_at or datetime.now(self.timezone)
         sent: list[TicketSaleEvent] = []
         # On the very first pass, record existing posts without sending fallback
         # alerts, so deploying this feature does not spam the whole history.
@@ -67,7 +70,7 @@ class Collector:
         """Parse one post, notify when relevant, and record it as seen."""
         title, _, _ = post_plain_text(post)
         is_new = not self.storage.post_seen(key)
-        event = build_event_from_post(post, source.name, source.lookback_days)
+        event = build_event_from_post(post, source.name, source.lookback_days, now=now)
 
         if event is not None:
             self._notify_event(event, now, sent)
