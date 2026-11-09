@@ -80,12 +80,14 @@ class CollectorTests(unittest.TestCase):
                 return StoreStatus(True, "202611061000", datetime(2026, 11, 6, 10), "https://ingressospalmeiras.com.br/jogo")
 
         notifier = FakeNotifier(fail_first=1)
-        collector = Collector([], self.storage, notifier, self.logger, store_source=Store())
+        announcement = post("remo", "Ingressos para jogo contra Remo", UNPARSED_HTML)
+        collector = Collector([FakeSource([announcement])], self.storage, notifier, self.logger, store_source=Store())
         collector.run_once(datetime(2026, 11, 6, 10))
         self.assertEqual(notifier.messages, [])
         collector.run_once(datetime(2026, 11, 6, 10, 5))
         self.assertEqual(len(notifier.messages), 1)
         self.assertIn("Vendas abertas", notifier.messages[0])
+        self.assertIn("https://palmeiras.com.br/noticias/remo/", notifier.messages[0])
         collector.run_once(datetime(2026, 11, 6, 10, 10))
         self.assertEqual(len(notifier.messages), 1)
 

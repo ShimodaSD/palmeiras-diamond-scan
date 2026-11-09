@@ -82,10 +82,12 @@ class MessageContentTests(unittest.TestCase):
         message = build_store_open_message(
             datetime(2026, 11, 6, 10),
             "https://ingressospalmeiras.com.br/jogo",
+            "https://palmeiras.com.br/noticias/remo/",
             datetime(2026, 11, 6, 10),
         )
         self.assertIn("Vendas abertas", message)
         self.assertIn("https://ingressospalmeiras.com.br/jogo", message)
+        self.assertIn("https://palmeiras.com.br/noticias/remo/", message)
 
 
 if __name__ == "__main__":
